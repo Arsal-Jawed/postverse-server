@@ -32,13 +32,13 @@ const mediaUpload = multer({
 
 /**
  * @route POST /api/upload
- * @desc  Upload an image to Cloudinary
+ * @desc  Upload an image to S3
  */
 router.post("/", authenticate, imageUpload.single("image"), uploadImage)
 
 /**
  * @route POST /api/upload/media
- * @desc  Upload image, GIF, or video
+ * @desc  Upload image, GIF, or video to S3
  */
 router.post("/media", authenticate, mediaUpload.single("media"), uploadMedia)
 
