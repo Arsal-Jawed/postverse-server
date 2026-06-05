@@ -84,7 +84,7 @@ httpServer.listen(PORT, async () => {
   console.log(`🚀 Postverse server running on port ${PORT}`)
 
   // Attach Socket.io to the same HTTP server
-  initSocket(httpServer, CLIENT_ORIGIN)
+  initSocket(httpServer, process.env.CLIENT_ORIGIN)
   console.log("💬 Socket.io real-time chat active")
 
   // Test DB connection and initialise schema
