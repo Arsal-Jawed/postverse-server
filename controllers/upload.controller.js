@@ -11,12 +11,13 @@ const detectMediaType = (mimetype) => {
 
 /**
  * Handle image upload to S3.
- * Expects a file in req.file (via Multer).
+ * Expects a file in req.file (via Multer) with field name "image".
  */
 export const uploadImage = async (req, res) => {
   try {
     if (!req.file) {
-      return res.status(400).json({ error: "No image file provided" })
+      console.warn("⚠️  uploadImage: No file in req.file. Check that the FormData field name is 'image'.")
+      return res.status(400).json({ error: "No image file provided. Send file with field name 'image'." })
     }
 
     const result = await uploadToS3(req.file, "posts")
@@ -28,19 +29,20 @@ export const uploadImage = async (req, res) => {
       media_type: "image",
     })
   } catch (err) {
-    console.error("❌ S3 upload error:", err.message)
+    console.error("❌ S3 upload error:", err.name, err.message)
     res.status(500).json({ error: "Failed to upload image", detail: err.message })
   }
 }
 
 /**
  * Handle image, GIF, or short video upload to S3.
- * Field name: media
+ * Expects a file in req.file (via Multer) with field name "media".
  */
 export const uploadMedia = async (req, res) => {
   try {
     if (!req.file) {
-      return res.status(400).json({ error: "No media file provided" })
+      console.warn("⚠️  uploadMedia: No file in req.file. Check that the FormData field name is 'media'.")
+      return res.status(400).json({ error: "No media file provided. Send file with field name 'media'." })
     }
 
     const allowed = [...ALLOWED_IMAGE, ...ALLOWED_VIDEO]
@@ -60,7 +62,22 @@ export const uploadMedia = async (req, res) => {
       media_type,
     })
   } catch (err) {
-    console.error("❌ S3 media upload error:", err.message)
+    console.error("❌ S3 media upload error:", err.name, err.message)
+
+    // Specific AWS error hints
+    if (err.name === "AccessDenied" || err.Code === "AccessDenied") {
+      return res.status(500).json({
+        error: "S3 access denied. AWS credentials may be invalid or quarantined.",
+        detail: err.message,
+      })
+    }
+    if (err.name === "NoSuchBucket") {
+      return res.status(500).json({
+        error: "S3 bucket not found. Check AWS_BUCKET_NAME in .env",
+        detail: err.message,
+      })
+    }
+
     res.status(500).json({ error: "Failed to upload media", detail: err.message })
   }
 }

@@ -30,16 +30,39 @@ const mediaUpload = multer({
   },
 })
 
+// Multer error handler — converts multer errors to clean JSON 400 responses
+const handleMulterError = (uploadMiddleware) => (req, res, next) => {
+  uploadMiddleware(req, res, (err) => {
+    if (!err) return next()
+    const status = err.code === "LIMIT_FILE_SIZE" ? 413 : 400
+    const message =
+      err.code === "LIMIT_FILE_SIZE"
+        ? `File too large. Max size: ${err.field === "image" ? "5MB" : "10MB"}`
+        : err.message || "File upload error"
+    return res.status(status).json({ error: message })
+  })
+}
+
 /**
  * @route POST /api/upload
- * @desc  Upload an image to S3
+ * @desc  Upload an image to S3 (field name: "image")
  */
-router.post("/", authenticate, imageUpload.single("image"), uploadImage)
+router.post(
+  "/",
+  authenticate,
+  handleMulterError(imageUpload.single("image")),
+  uploadImage,
+)
 
 /**
  * @route POST /api/upload/media
- * @desc  Upload image, GIF, or video to S3
+ * @desc  Upload image, GIF, or video to S3 (field name: "media")
  */
-router.post("/media", authenticate, mediaUpload.single("media"), uploadMedia)
+router.post(
+  "/media",
+  authenticate,
+  handleMulterError(mediaUpload.single("media")),
+  uploadMedia,
+)
 
 export default router

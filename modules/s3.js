@@ -1,4 +1,4 @@
-import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3"
+import { S3Client, PutObjectCommand, GetBucketLocationCommand } from "@aws-sdk/client-s3"
 import { v4 as uuidv4 } from "uuid"
 import dotenv from "dotenv"
 
@@ -15,13 +15,14 @@ const EXT_BY_MIME = {
 }
 
 let s3Client = null
+let resolvedRegion = null // cached after first successful detection
 
 export const getS3Config = () => {
   const accessKeyId =
     process.env.AWS_ACCESS_KEY_ID || process.env.AWS_Access_Key
   const secretAccessKey =
     process.env.AWS_SECRET_ACCESS_KEY || process.env.AWS_Secret_Access_Key
-  const region = process.env.AWS_REGION || "eu-north-1"
+  const region = process.env.AWS_REGION || "us-east-1"
   const bucket = process.env.AWS_BUCKET_NAME
 
   if (!accessKeyId || !secretAccessKey || !bucket) {
@@ -33,19 +34,48 @@ export const getS3Config = () => {
   return { accessKeyId, secretAccessKey, region, bucket }
 }
 
-const getClient = () => {
-  if (!s3Client) {
-    const { accessKeyId, secretAccessKey, region } = getS3Config()
-    s3Client = new S3Client({
-      region,
-      credentials: { accessKeyId, secretAccessKey },
+/**
+ * Detect the actual region of the bucket by querying S3.
+ * us-east-1 buckets return null from GetBucketLocation — we default to "us-east-1".
+ */
+const detectBucketRegion = async (cfg) => {
+  try {
+    // Use us-east-1 as a global endpoint to check bucket location
+    const probe = new S3Client({
+      region: "us-east-1",
+      credentials: { accessKeyId: cfg.accessKeyId, secretAccessKey: cfg.secretAccessKey },
     })
+    const { LocationConstraint } = await probe.send(
+      new GetBucketLocationCommand({ Bucket: cfg.bucket }),
+    )
+    const detected = LocationConstraint || "us-east-1"
+    console.log(`🪣  S3 bucket "${cfg.bucket}" is in region: ${detected}`)
+    return detected
+  } catch (err) {
+    console.warn(`⚠️  Could not auto-detect bucket region, using .env value. Error: ${err.message}`)
+    return cfg.region
   }
+}
+
+const getClient = async () => {
+  if (s3Client && resolvedRegion) return s3Client
+
+  const cfg = getS3Config()
+
+  // Auto-detect the real bucket region to avoid PermanentRedirect errors
+  resolvedRegion = await detectBucketRegion(cfg)
+
+  s3Client = new S3Client({
+    region: resolvedRegion,
+    credentials: { accessKeyId: cfg.accessKeyId, secretAccessKey: cfg.secretAccessKey },
+  })
+
   return s3Client
 }
 
 const buildPublicUrl = (key) => {
-  const { bucket, region } = getS3Config()
+  const { bucket } = getS3Config()
+  const region = resolvedRegion || getS3Config().region
   const customBase = process.env.AWS_S3_PUBLIC_URL?.replace(/\/$/, "")
   if (customBase) return `${customBase}/${key}`
   return `https://${bucket}.s3.${region}.amazonaws.com/${key}`
@@ -64,7 +94,9 @@ export const uploadToS3 = async (file, folder = "posts") => {
     "bin"
   const key = `${folder.replace(/\/$/, "")}/${uuidv4()}.${ext}`
 
-  await getClient().send(
+  const client = await getClient()
+
+  await client.send(
     new PutObjectCommand({
       Bucket: bucket,
       Key: key,
